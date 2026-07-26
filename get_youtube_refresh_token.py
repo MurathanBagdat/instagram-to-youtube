@@ -21,7 +21,12 @@ import webbrowser
 
 PORT = 8765
 REDIRECT_URI = f"http://localhost:{PORT}"
-SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+SCOPES = {
+    "1": ("upload only (for the reel sync GitHub Action)",
+          "https://www.googleapis.com/auth/youtube.upload"),
+    "2": ("comments read + reply (for the ig-dashboard comment inbox)",
+          "https://www.googleapis.com/auth/youtube.force-ssl"),
+}
 
 auth_code = {}
 
@@ -46,12 +51,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     client_id = input("Google OAuth Client ID: ").strip()
     client_secret = input("Google OAuth Client Secret: ").strip()
+    for key, (label, _) in SCOPES.items():
+        print(f"  [{key}] {label}")
+    choice = input("Which permissions? [1/2]: ").strip() or "1"
+    scope = SCOPES.get(choice, SCOPES["1"])[1]
 
     auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode({
         "client_id": client_id,
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
-        "scope": SCOPE,
+        "scope": scope,
         "access_type": "offline",
         "prompt": "consent",
     })
