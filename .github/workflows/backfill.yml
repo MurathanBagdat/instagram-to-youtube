@@ -1,12 +1,14 @@
 name: Daily archive backfill
 
-# 09:00 Türkiye time = 06:00 UTC (Türkiye is UTC+3 year-round, no DST).
+# 18:00 Türkiye time = 15:00 UTC (Türkiye is UTC+3 year-round, no DST).
+# Chosen to land ~2h before Turkey's 20:00-23:00 viewing peak, giving the
+# Shorts algorithm its test window as the audience comes online.
 # Migrates ONE historical reel per day, oldest first, starting after the
 # anchor reel defined in backfill.py. No-op once the backlog drains.
 
 on:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 15 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
