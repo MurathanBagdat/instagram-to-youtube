@@ -24,8 +24,9 @@ REDIRECT_URI = f"http://localhost:{PORT}"
 SCOPES = {
     "1": ("upload only (for the reel sync GitHub Action)",
           "https://www.googleapis.com/auth/youtube.upload"),
-    "2": ("comments read + reply (for the ig-dashboard comment inbox)",
-          "https://www.googleapis.com/auth/youtube.force-ssl"),
+    "2": ("dashboard: comments read/reply + channel analytics (ig-dashboard)",
+          "https://www.googleapis.com/auth/youtube.force-ssl "
+          "https://www.googleapis.com/auth/yt-analytics.readonly"),
 }
 
 auth_code = {}
