@@ -89,6 +89,38 @@ Actions tab → **Sync Instagram Reels to YouTube Shorts** → **Run workflow**.
 The first run initializes `state.json`. Then post a reel and watch it appear
 on YouTube within ~5–15 minutes.
 
+## Manually migrating an old reel
+
+Old reels are not backfilled automatically, but you can migrate any single
+reel by URL:
+
+```bash
+gh workflow run migrate.yml -f reel_url="https://www.instagram.com/reel/XXXX/"
+```
+
+or on GitHub: **Actions → Migrate a reel → Run workflow**, paste the URL.
+Add `-f force=true` to re-upload a reel that was already synced.
+
+## Email notifications
+
+Two kinds of email go to the address in `notify.py` (default:
+murathanbagdat@hotmail.com):
+
+- a **success email** right after any reel is uploaded (automatic or manual);
+- a **daily report at 17:00 Türkiye time** with the last 24 h: how many reels
+  were uploaded and any failed workflow runs.
+
+Sending uses Gmail SMTP. One-time setup: on a Google account with
+2-Step Verification enabled, create an **app password** at
+<https://myaccount.google.com/apppasswords>, then:
+
+```bash
+gh secret set GMAIL_ADDRESS        # the Gmail address doing the sending
+gh secret set GMAIL_APP_PASSWORD   # the 16-character app password
+```
+
+Without these secrets everything else still works — emails are simply skipped.
+
 ## Notes
 
 - **Timing:** GitHub schedules can lag a few minutes at busy times; expect

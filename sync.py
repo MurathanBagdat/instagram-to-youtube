@@ -23,12 +23,22 @@ import json
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 import requests
 
+from notify import send_email
+
 IG_API = "https://graph.instagram.com/v23.0"
-STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(_HERE, "state.json")
+LOG_FILE = os.path.join(_HERE, "sync_log.jsonl")
 MAX_STATE_IDS = 500
+
+
+def append_log(entry):
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def load_state():
@@ -179,6 +189,7 @@ def main():
     max_per_run = int(os.environ.get("MAX_PER_RUN", "3"))
     yt_token = get_youtube_access_token()
 
+    uploaded = []
     for reel in new_reels[:max_per_run]:
         if not reel.get("media_url"):
             print(f"Reel {reel['id']} has no media_url; marking as skipped.")
@@ -190,11 +201,32 @@ def main():
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
             download_video(reel["media_url"], tmp.name)
             video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
-        print(f"  -> https://youtube.com/shorts/{video_id}")
+        youtube_url = f"https://youtube.com/shorts/{video_id}"
+        print(f"  -> {youtube_url}")
         state["synced"].append(reel["id"])
         save_state(state)
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "reel_id": reel["id"],
+            "title": title,
+            "permalink": reel.get("permalink"),
+            "youtube_url": youtube_url,
+        }
+        append_log(entry)
+        uploaded.append(entry)
 
     save_state(state)
+
+    if uploaded:
+        lines = ["Yeni reel(ler) YouTube'a yüklendi:\n"]
+        for e in uploaded:
+            lines.append(f"• {e['title']}")
+            lines.append(f"  YouTube:   {e['youtube_url']}")
+            lines.append(f"  Instagram: {e['permalink']}\n")
+        send_email(
+            f"✅ {len(uploaded)} yeni reel YouTube'a yüklendi",
+            "\n".join(lines),
+        )
     return 0
 
 

@@ -1,9 +1,17 @@
-name: Sync Instagram Reels to YouTube Shorts
+name: Migrate a reel
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      reel_url:
+        description: "Instagram reel URL (e.g. https://www.instagram.com/reel/XXXX/)"
+        required: true
+        type: string
+      force:
+        description: "Re-upload even if already synced"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: sync
@@ -13,7 +21,7 @@ permissions:
   contents: write
 
 jobs:
-  sync:
+  migrate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,15 +33,17 @@ jobs:
 
       - run: pip install requests
 
-      - name: Sync reels
+      - name: Migrate reel
         env:
+          REEL_URL: ${{ inputs.reel_url }}
+          FORCE: ${{ inputs.force && '1' || '0' }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        run: python sync.py
+        run: python migrate.py
 
       - name: Commit updated state
         run: |
@@ -41,6 +51,6 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -m "Update sync state"
+            git commit -m "Update sync state (manual migration)"
             git push
           fi
