@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -103,12 +104,24 @@ def get_youtube_access_token():
     return resp.json()["access_token"]
 
 
-def download_video(url, dest):
-    with requests.get(url, stream=True, timeout=120) as resp:
-        resp.raise_for_status()
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=1 << 20):
-                f.write(chunk)
+def download_video(url, dest, attempts=3):
+    # Instagram's CDN occasionally resets long downloads mid-stream; retry a
+    # couple of times with a pause before declaring failure.
+    for attempt in range(1, attempts + 1):
+        try:
+            with requests.get(url, stream=True, timeout=120) as resp:
+                resp.raise_for_status()
+                with open(dest, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        f.write(chunk)
+            return
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.Timeout) as e:
+            if attempt == attempts:
+                raise
+            print(f"Download attempt {attempt} failed ({e}); retrying...")
+            time.sleep(10 * attempt)
 
 
 def upload_to_youtube(access_token, video_path, title, description):
