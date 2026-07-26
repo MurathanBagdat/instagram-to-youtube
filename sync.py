@@ -143,14 +143,21 @@ def upload_to_youtube(access_token, video_path, title, description):
 
 
 def main():
-    required = ["IG_ACCESS_TOKEN", "YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"]
-    missing = [k for k in required if not os.environ.get(k)]
-    if missing:
-        print(f"Credentials not configured yet ({', '.join(missing)}); skipping run.")
+    if not os.environ.get("IG_ACCESS_TOKEN"):
+        print("IG_ACCESS_TOKEN not configured yet; skipping run.")
         return 0
 
     media = fetch_recent_media(os.environ["IG_ACCESS_TOKEN"])
     reels = [m for m in media if is_reel(m)]
+    print(f"Instagram OK: {len(media)} recent posts visible, {len(reels)} are reels.")
+
+    yt_missing = [k for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN")
+                  if not os.environ.get(k)]
+    if yt_missing:
+        print(f"YouTube credentials not configured yet ({', '.join(yt_missing)}); "
+              "stopping after the Instagram check.")
+        return 0
+
     state = load_state()
 
     if state is None:
