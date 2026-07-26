@@ -1,0 +1,57 @@
+name: Daily archive backfill
+
+# 09:00 Türkiye time = 06:00 UTC (Türkiye is UTC+3 year-round, no DST).
+# Migrates ONE historical reel per day, oldest first, starting after the
+# anchor reel defined in backfill.py. No-op once the backlog drains.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List the backlog without uploading"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Migrate one archive reel
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python backfill.py
+
+      - name: Commit updated state
+        run: |
+          for f in state.json sync_log.jsonl; do [ -f "$f" ] && git add "$f"; done
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "Update sync state (archive backfill)"
+            git push
+          fi
