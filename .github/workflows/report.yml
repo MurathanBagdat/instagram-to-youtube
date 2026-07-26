@@ -1,9 +1,10 @@
 name: Daily email report
 
-# 17:00 Türkiye time = 14:00 UTC (Türkiye is UTC+3 year-round, no DST)
+# 19:00 Türkiye time = 16:00 UTC (Türkiye is UTC+3 year-round, no DST).
+# After the 18:00 archive backfill, so each day's migration makes same-day report.
 on:
   schedule:
-    - cron: "0 14 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
 
 permissions:
