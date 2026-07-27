@@ -11,21 +11,47 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # GitHub's concurrency group fails to serialise runs created seconds
+      # apart (observed 2026-07-27: a delayed scheduled run + a manual dispatch
+      # uploaded the same reel twice). Guard: if an OLDER sync-family run is
+      # still in flight, this run steps aside. Strictly ordered run ids mean
+      # the two can never both yield.
+      - name: Skip if an older sync-family run is in flight
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skip=0
+          for wf in sync.yml migrate.yml backfill.yml; do
+            older=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$wf" --status in_progress \
+              --json databaseId --jq "[.[] | select(.databaseId < $GITHUB_RUN_ID)] | length")
+            [ "${older:-0}" -gt 0 ] && skip=1
+          done
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          if [ "$skip" = "1" ]; then
+            echo "Another sync-family run is already in flight — skipping to avoid duplicate uploads."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != '1'
 
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
 
-      - run: pip install requests
+      - if: steps.guard.outputs.skip != '1'
+        run: pip install requests
 
       - name: Sync reels
+        if: steps.guard.outputs.skip != '1'
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
@@ -36,11 +62,5 @@ jobs:
         run: python sync.py
 
       - name: Commit updated state
-        run: |
-          for f in state.json sync_log.jsonl; do [ -f "$f" ] && git add "$f"; done
-          if ! git diff --cached --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -m "Update sync state"
-            git push
-          fi
+        if: steps.guard.outputs.skip != '1'
+        run: python push_state.py

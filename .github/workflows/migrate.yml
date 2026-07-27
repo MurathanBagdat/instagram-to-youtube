@@ -19,21 +19,44 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   migrate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # See sync.yml: GitHub's concurrency group misses runs created seconds
+      # apart, which once produced a duplicate upload. Older in-flight run wins.
+      - name: Skip if an older sync-family run is in flight
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skip=0
+          for wf in sync.yml migrate.yml backfill.yml; do
+            older=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$wf" --status in_progress \
+              --json databaseId --jq "[.[] | select(.databaseId < $GITHUB_RUN_ID)] | length")
+            [ "${older:-0}" -gt 0 ] && skip=1
+          done
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          if [ "$skip" = "1" ]; then
+            echo "Another sync-family run is already in flight — skipping to avoid duplicate uploads. Re-run in a minute."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != '1'
 
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
 
-      - run: pip install requests
+      - if: steps.guard.outputs.skip != '1'
+        run: pip install requests
 
       - name: Migrate reel
+        if: steps.guard.outputs.skip != '1'
         env:
           REEL_URL: ${{ inputs.reel_url }}
           FORCE: ${{ inputs.force && '1' || '0' }}
@@ -46,11 +69,7 @@ jobs:
         run: python migrate.py
 
       - name: Commit updated state
-        run: |
-          for f in state.json sync_log.jsonl; do [ -f "$f" ] && git add "$f"; done
-          if ! git diff --cached --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -m "Update sync state (manual migration)"
-            git push
-          fi
+        if: steps.guard.outputs.skip != '1'
+        env:
+          COMMIT_MSG: "Update sync state (manual migration)"
+        run: python push_state.py
