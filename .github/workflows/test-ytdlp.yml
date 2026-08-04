@@ -1,0 +1,27 @@
+name: Test yt-dlp from Actions (temporary)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reel_url:
+        description: "Instagram reel URL to probe"
+        required: true
+        type: string
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install yt-dlp
+      - name: Probe reel anonymously
+        run: |
+          set +e
+          yt-dlp -g -f "b" "${{ inputs.reel_url }}"
+          echo "yt-dlp -g exit code: $?"
+          yt-dlp --no-progress -f "b" -o probe.mp4 "${{ inputs.reel_url }}"
+          echo "yt-dlp download exit code: $?"
+          ls -la probe.mp4 2>/dev/null || echo "no file downloaded"
