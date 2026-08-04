@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import requests
 
 from notify import send_email
+from translate import translate_metadata
 from sync import (
     IG_API,
     append_log,
@@ -97,7 +98,8 @@ def main():
             download_video(video_url_override, tmp.name)
         else:
             fetch_video(media, tmp.name)
-        video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
+        en = translate_metadata(title, caption)
+        video_id = upload_to_youtube(yt_token, tmp.name, title, caption, en=en)
     youtube_url = f"https://youtube.com/shorts/{video_id}"
     print(f"  -> {youtube_url}")
 

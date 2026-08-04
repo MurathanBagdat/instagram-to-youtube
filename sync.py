@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 import requests
 
 from notify import send_email
+from translate import translate_metadata
 
 IG_API = "https://graph.instagram.com/v23.0"
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -150,31 +151,51 @@ def fetch_video(reel, dest):
         raise RuntimeError(f"yt-dlp produced no video for {permalink}")
 
 
-def upload_to_youtube(access_token, video_path, title, description):
+def upload_to_youtube(access_token, video_path, title, description, en=None):
+    """Upload a video. `en` is an optional {"title", "description"} dict attached
+    as an English localization (default metadata stays Turkish)."""
     metadata = {
         "snippet": {
             "title": title,
             "description": description,
             "categoryId": "15",  # Pets & Animals
+            "defaultLanguage": "tr",
+            "defaultAudioLanguage": "tr",
         },
         "status": {
             "privacyStatus": os.environ.get("PRIVACY_STATUS", "public"),
             "selfDeclaredMadeForKids": False,
         },
     }
+    parts = "snippet,status"
+    if en:
+        metadata["localizations"] = {
+            "en": {"title": en["title"], "description": en["description"]},
+        }
+        parts = "snippet,status,localizations"
+
+    def init_upload(md, part):
+        return requests.post(
+            "https://www.googleapis.com/upload/youtube/v3/videos",
+            params={"uploadType": "resumable", "part": part},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json; charset=UTF-8",
+                "X-Upload-Content-Length": str(size),
+                "X-Upload-Content-Type": "video/mp4",
+            },
+            json=md,
+            timeout=60,
+        )
+
     size = os.path.getsize(video_path)
-    init = requests.post(
-        "https://www.googleapis.com/upload/youtube/v3/videos",
-        params={"uploadType": "resumable", "part": "snippet,status"},
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=UTF-8",
-            "X-Upload-Content-Length": str(size),
-            "X-Upload-Content-Type": "video/mp4",
-        },
-        json=metadata,
-        timeout=60,
-    )
+    init = init_upload(metadata, parts)
+    if init.status_code != 200 and en:
+        # A bad localization payload must never block the upload itself.
+        print(f"Upload init with localization failed {init.status_code}: "
+              f"{init.text[:300]} — retrying without localization.")
+        metadata.pop("localizations", None)
+        init = init_upload(metadata, "snippet,status")
     if init.status_code != 200:
         raise RuntimeError(f"Upload init failed {init.status_code}: {init.text[:500]}")
     upload_url = init.headers["Location"]
@@ -266,7 +287,8 @@ def main():
                         "ile çalıştır.",
                     )
                     continue
-            video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
+            en = translate_metadata(title, caption)
+            video_id = upload_to_youtube(yt_token, tmp.name, title, caption, en=en)
         youtube_url = f"https://youtube.com/shorts/{video_id}"
         print(f"  -> {youtube_url}")
         state["synced"].append(reel["id"])

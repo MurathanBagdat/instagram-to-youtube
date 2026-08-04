@@ -26,6 +26,7 @@ import requests
 
 from migrate import extract_shortcode
 from notify import send_email
+from translate import translate_metadata
 from sync import (
     IG_API,
     LOG_FILE,
@@ -130,7 +131,8 @@ def main():
                     "skipped": f"download failed: {e}",
                 })
                 continue
-            video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
+            en = translate_metadata(title, caption)
+            video_id = upload_to_youtube(yt_token, tmp.name, title, caption, en=en)
         reel = candidate
         break
     if reel is None:
