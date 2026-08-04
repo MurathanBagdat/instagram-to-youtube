@@ -31,7 +31,7 @@ from sync import (
     LOG_FILE,
     append_log,
     build_title,
-    download_video,
+    fetch_video,
     get_youtube_access_token,
     is_reel,
     load_state,
@@ -106,35 +106,37 @@ def main():
         print("DRY RUN — nothing uploaded.")
         return 0
 
-    # Oldest reel with a downloadable media_url; ones without get a ledger
-    # entry marking them skipped so they never block the queue.
+    # Oldest first. Reels without a media_url are fetched via the yt-dlp
+    # fallback in fetch_video; a reel whose download fails entirely gets a
+    # ledger entry marking it skipped so it never blocks the queue.
+    yt_token = get_youtube_access_token()
     reel = None
     for candidate in backlog:
-        if candidate.get("media_url"):
-            reel = candidate
-            break
-        print(f"Reel {candidate['id']} ({candidate.get('permalink')}) has no media_url; "
-              "recording as skipped.")
-        append_log({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "reel_id": candidate["id"],
-            "title": None,
-            "permalink": candidate.get("permalink"),
-            "youtube_url": None,
-            "backfill": True,
-            "skipped": "no media_url",
-        })
+        caption = candidate.get("caption", "") or ""
+        title = build_title(caption, candidate.get("timestamp", ""))
+        print(f"Migrating {candidate.get('permalink')} as: {title}")
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
+            try:
+                fetch_video(candidate, tmp.name)
+            except Exception as e:
+                print(f"  download failed ({e}); recording as skipped.")
+                append_log({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "reel_id": candidate["id"],
+                    "title": title,
+                    "permalink": candidate.get("permalink"),
+                    "youtube_url": None,
+                    "backfill": True,
+                    "skipped": f"download failed: {e}",
+                })
+                continue
+            video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
+        reel = candidate
+        break
     if reel is None:
-        print("Every remaining backlog reel lacks a media_url; nothing to upload.")
+        print("Every remaining backlog reel failed to download; nothing uploaded.")
         return 0
 
-    caption = reel.get("caption", "") or ""
-    title = build_title(caption, reel.get("timestamp", ""))
-    print(f"Migrating {reel.get('permalink')} as: {title}")
-    yt_token = get_youtube_access_token()
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-        download_video(reel["media_url"], tmp.name)
-        video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
     youtube_url = f"https://youtube.com/shorts/{video_id}"
     print(f"  -> {youtube_url}")
 

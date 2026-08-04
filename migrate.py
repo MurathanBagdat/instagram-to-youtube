@@ -25,6 +25,7 @@ from sync import (
     append_log,
     build_title,
     download_video,
+    fetch_video,
     get_youtube_access_token,
     load_state,
     save_state,
@@ -76,15 +77,10 @@ def main():
     if media.get("media_type") != "VIDEO":
         print(f"This post is not a video (media_type={media.get('media_type')}).")
         return 1
-    # Reels with copyrighted audio come back without a media_url; the workflow's
-    # video_url input lets the caller supply a direct download URL (e.g. from
-    # `yt-dlp -g <reel url>`) so those can still be migrated.
-    video_url = media.get("media_url") or os.environ.get("VIDEO_URL")
-    if not video_url:
-        print("Instagram did not provide a downloadable media_url for this reel "
-              "(this can happen with copyrighted audio). Re-run the workflow with "
-              "the video_url input set to a direct video URL (yt-dlp -g).")
-        return 1
+    # Reels with copyrighted audio come back without a media_url; fetch_video
+    # falls back to yt-dlp on the permalink. The workflow's video_url input
+    # remains as a manual override should even that fail.
+    video_url_override = os.environ.get("VIDEO_URL")
 
     state = load_state() or {"synced": []}
     if media["id"] in state["synced"] and os.environ.get("FORCE") != "1":
@@ -97,7 +93,10 @@ def main():
     print(f"Uploading as: {title}")
     yt_token = get_youtube_access_token()
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-        download_video(video_url, tmp.name)
+        if video_url_override and not media.get("media_url"):
+            download_video(video_url_override, tmp.name)
+        else:
+            fetch_video(media, tmp.name)
         video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
     youtube_url = f"https://youtube.com/shorts/{video_id}"
     print(f"  -> {youtube_url}")

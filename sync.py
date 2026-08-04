@@ -21,6 +21,7 @@ Optional:
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -124,6 +125,31 @@ def download_video(url, dest, attempts=3):
             time.sleep(10 * attempt)
 
 
+def fetch_video(reel, dest):
+    """Download a reel's video to dest.
+
+    Uses the API's media_url when present. Reels with copyrighted audio come
+    back without one; for those, download the public permalink with yt-dlp
+    (verified to work anonymously from GitHub Actions runners).
+    """
+    if reel.get("media_url"):
+        download_video(reel["media_url"], dest)
+        return
+    permalink = reel.get("permalink")
+    if not permalink:
+        raise RuntimeError(f"Reel {reel['id']} has neither media_url nor permalink.")
+    print(f"Reel {reel['id']} has no media_url (copyrighted audio); "
+          f"falling back to yt-dlp: {permalink}")
+    subprocess.run(
+        ["yt-dlp", "--no-progress", "--force-overwrites", "-f", "b",
+         "-o", dest, permalink],
+        check=True,
+        timeout=600,
+    )
+    if not (os.path.exists(dest) and os.path.getsize(dest)):
+        raise RuntimeError(f"yt-dlp produced no video for {permalink}")
+
+
 def upload_to_youtube(access_token, video_path, title, description):
     metadata = {
         "snippet": {
@@ -204,15 +230,42 @@ def main():
 
     uploaded = []
     for reel in new_reels[:max_per_run]:
-        if not reel.get("media_url"):
-            print(f"Reel {reel['id']} has no media_url; marking as skipped.")
-            state["synced"].append(reel["id"])
-            continue
         caption = reel.get("caption", "") or ""
         title = build_title(caption, reel.get("timestamp", ""))
         print(f"Uploading reel {reel['id']} ({reel.get('permalink')}) as: {title}")
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-            download_video(reel["media_url"], tmp.name)
+            if reel.get("media_url"):
+                # Transient CDN failures propagate and fail the run so the
+                # 5-minute schedule retries; the reel is not marked synced.
+                download_video(reel["media_url"], tmp.name)
+            else:
+                # No media_url means the yt-dlp fallback. If even that fails,
+                # skip the reel with a warning email instead of retrying (and
+                # emailing) every 5 minutes forever.
+                try:
+                    fetch_video(reel, tmp.name)
+                except Exception as e:
+                    print(f"yt-dlp fallback failed for {reel.get('permalink')}: {e}")
+                    state["synced"].append(reel["id"])
+                    save_state(state)
+                    append_log({
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "reel_id": reel["id"],
+                        "title": title,
+                        "permalink": reel.get("permalink"),
+                        "youtube_url": None,
+                        "skipped": f"no media_url; yt-dlp failed: {e}",
+                    })
+                    send_email(
+                        "⚠️ Reel YouTube'a otomatik taşınamadı",
+                        "Bu reel'in videosu indirilemedi (media_url yok ve "
+                        f"yt-dlp da başarısız oldu):\n\n  {reel.get('permalink')}\n\n"
+                        f"Hata: {e}\n\n"
+                        "Manuel taşımak için 'Migrate a reel' workflow'unu "
+                        "video_url girdisi (yt-dlp -g çıktısı) ve force=true "
+                        "ile çalıştır.",
+                    )
+                    continue
             video_id = upload_to_youtube(yt_token, tmp.name, title, caption)
         youtube_url = f"https://youtube.com/shorts/{video_id}"
         print(f"  -> {youtube_url}")
