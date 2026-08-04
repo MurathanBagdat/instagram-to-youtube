@@ -46,6 +46,9 @@ def translate_metadata(title, description):
             headers={"Authorization": f"Bearer {key}"},
             json={
                 "model": OPENROUTER_MODEL,
+                # Without max_tokens OpenRouter reserves the model's full 65k
+                # output window against the key's credit limit and 402s.
+                "max_tokens": 2000,
                 "response_format": {"type": "json_object"},
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
